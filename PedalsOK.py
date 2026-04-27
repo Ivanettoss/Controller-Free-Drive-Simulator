@@ -37,8 +37,8 @@ AUTO_MIN_PEDAL_W = 35
 AUTO_MIN_PEDAL_H = 55
 
 # Pad piccolo: evita di includere fughe/piastrelle dentro la ROI.
-AUTO_ROI_PAD_X = 12
-AUTO_ROI_PAD_Y = 12
+AUTO_ROI_PAD_X = 8
+AUTO_ROI_PAD_Y = 8
 
 # Se dopo la classificazione per forma risultano ancora invertiti,
 # metti True. Di solito deve restare False.
@@ -49,7 +49,7 @@ AUTO_CLOSE_KERNEL = 23
 AUTO_DILATE_KERNEL = 15
 
 # ================= CALIBRAZIONE =================
-CALIBRATION_FRAMES = 25
+CALIBRATION_FRAMES = 35
 
 # Nero stampato su foglio bianco.
 # Durante la calibrazione il threshold del nero viene calcolato con Otsu,
@@ -61,26 +61,26 @@ BLACK_THRESHOLD_MIN = 45
 BLACK_THRESHOLD_MAX = 145
 
 # Rilevamento automatico della faccia del pedale, escludendo il gambo.
-FACE_ROW_SPAN_RATIO = 0.52
-FACE_PAD_X, FACE_PAD_Y = 8, 8
+FACE_ROW_SPAN_RATIO = 0.40
+FACE_PAD_X, FACE_PAD_Y = 12, 24
 
 # ================= EDGE / DIFF =================
 CANNY_LOW, CANNY_HIGH = 50, 140
-EDGE_TOLERANCE_RADIUS = 3
+EDGE_TOLERANCE_RADIUS = 5
 MIN_REF_EDGE_PIXELS = 120
 MIN_REF_BLACK_PIXELS = 250
-INTENSITY_DIFF_THRESHOLD = 42
+INTENSITY_DIFF_THRESHOLD = 55
 
 # Con la nuova stampa, il segnale più robusto è BLACK_MISSING:
 # quando il piede copre il pedale, i dettagli neri stampati spariscono.
-BLACK_MISSING_WEIGHT = 0.55
-EDGE_MISSING_WEIGHT = 0.30
-INTENSITY_WEIGHT = 0.15
+BLACK_MISSING_WEIGHT = 0.75
+EDGE_MISSING_WEIGHT = 0.15
+INTENSITY_WEIGHT = 0.08
 
 # Soglie pressione. Da regolare dopo il primo test.
-GAS_HARD_THRESHOLD = 0.07
-GAS_FULL_PRESSURE_AT = 0.55
-BRAKE_HARD_THRESHOLD = 0.07
+GAS_HARD_THRESHOLD = 0.10
+GAS_FULL_PRESSURE_AT = 0.45
+BRAKE_HARD_THRESHOLD = 0.10
 BRAKE_FULL_PRESSURE_AT = 0.55
 
 SMOOTHING = 0.22
