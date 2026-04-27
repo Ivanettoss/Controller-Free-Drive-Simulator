@@ -744,7 +744,6 @@ def update_state(state, live_gray):
     state["edge_missing"] = edge_missing
     state["diff"] = diff
     state["changed"] = changed
-    invia_comando("ciao ci sono")
 
 # ============================================================
 # VISUALIZZAZIONE
@@ -978,6 +977,19 @@ while True:
 
         update_state(brake_state, brake_live)
         update_state(gas_state, gas_live)
+
+        gas_val = gas_state["output"]
+        print( f"GAS black={gas_state['black_raw']:.3f} "
+        f"edge={gas_state['edge_raw']:.3f} "
+        f"int={gas_state['int_raw']:.3f} "
+        f"raw={gas_state['combined_raw']:.3f} "
+        f"pressure={gas_state['pressure']:.3f} "
+        f"out={gas_state['output']:.3f}"
+    )
+
+        invia_comando(f"GAS:{gas_val:.3f}")
+
+
 
     # Schermata principale a colori
     output = frame.copy()
