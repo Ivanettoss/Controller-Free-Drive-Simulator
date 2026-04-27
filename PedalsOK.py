@@ -18,7 +18,18 @@ import numpy as np
 #   S = salva screenshot dashboard
 #   Q = esci
 # ============================================================
+#====================CONFIG SOCKET============================
+import socket
 
+# Configurazione: IP locale e una porta libera a scelta
+UDP_IP = "127.0.0.1"
+UDP_PORT = 4242
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def invia_comando(messaggio: str):
+    # Trasforma la stringa in byte e la invia
+    sock.sendto(messaggio.encode(), (UDP_IP, UDP_PORT))
+    print(f"Inviato: {messaggio}")
 # ================= CONFIG CAMERA =================
 CAMERA_ID = 0
 FRAME_W, FRAME_H = 640, 480
@@ -733,7 +744,7 @@ def update_state(state, live_gray):
     state["edge_missing"] = edge_missing
     state["diff"] = diff
     state["changed"] = changed
-
+    invia_comando("ciao ci sono")
 
 # ============================================================
 # VISUALIZZAZIONE
