@@ -6,6 +6,36 @@ import os
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+import socket
+import time # <--- Aggiungilo all'inizio del file con gli altri import
+
+# --- Aggiungi queste assieme alle altre variabili dello sterzo ---
+calibrazione_in_corso = False
+inizio_calibrazione_tempo = 0.0
+durata_calibrazione = 2.0  # Durata della calibrazione in secondi
+somma_angoli_calibrazione = 0.0
+conteggio_angoli_calibrazione = 0
+
+
+# Configurazione: IP locale e una porta libera a scelta
+
+UDP_IP = "127.0.0.1"
+
+UDP_PORT = 4242
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+angolo_continuo = 0.0
+ultimo_angolo_filtrato = None
+
+def invia_comando(messaggio: str):
+
+    # Trasforma la stringa in byte e la invia
+
+    sock.sendto(messaggio.encode(), (UDP_IP, UDP_PORT))
+
+    print(f"Inviato: {messaggio}")
 
 
 # --- FUNZIONI HELPER ---
@@ -150,6 +180,7 @@ if not cap.isOpened():
     exit()
 
 
+
 # --- VARIABILI STERZO ---
 
 angolo_filtrato = 0.0
@@ -187,6 +218,7 @@ print("Premi R per ricalibrare lo zero.")
 # --- LOOP PRINCIPALE ---
 
 while running:
+
     successo, frame = cap.read()
 
     if not successo:
@@ -194,7 +226,7 @@ while running:
 
     frame = cv2.flip(frame, 1)
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
+  # --- DETECTION MANI ---
     mp_image = mp.Image(
         image_format=mp.ImageFormat.SRGB,
         data=frame_rgb
@@ -321,54 +353,94 @@ while running:
         angolo_continuo += delta
         ultimo_angolo_filtrato = angolo_filtrato
 
-        if not zero_impostato:
-            offset_angolo_zero = angolo_continuo
-            zero_impostato = True
+        # --- 1. GESTIONE DELLA CALIBRAZIONE ---
+        if not zero_impostato and not calibrazione_in_corso:
+            # Inizializza i dati per la calibrazione
+            calibrazione_in_corso = True
+            inizio_calibrazione_tempo = time.time()
+            somma_angoli_calibrazione = 0.0
+            conteggio_angoli_calibrazione = 0
 
-        angolo_sterzata = angolo_continuo - offset_angolo_zero
+        if calibrazione_in_corso:
+            # Calcola quanto tempo è passato
+            tempo_trascorso = time.time() - inizio_calibrazione_tempo
+            progresso = min(tempo_trascorso / durata_calibrazione, 1.0)
 
-        if abs(angolo_sterzata) < deadzone_angolo:
-            angolo_mostrato = 0.0
+            # Accumula l'angolo per fare una media precisa
+            somma_angoli_calibrazione += angolo_continuo
+            conteggio_angoli_calibrazione += 1
+
+            # --- UI: TESTO E BARRA DI CARICAMENTO ---
+            cv2.putText(
+                frame, 
+                "Calibrazione in corso... Tieni dritto!", 
+                (150, 80), 
+                cv2.FONT_HERSHEY_SIMPLEX, 
+                0.8, (0, 165, 255), 2
+            )
+            
+            # Disegna la barra di avanzamento
+            barra_x, barra_y, barra_w, barra_h = 150, 100, 500, 25
+            # Sfondo scuro
+            cv2.rectangle(frame, (barra_x, barra_y), (barra_x + barra_w, barra_y + barra_h), (50, 50, 50), -1)
+            # Riempimento verde in base al progresso
+            cv2.rectangle(frame, (barra_x, barra_y), (barra_x + int(barra_w * progresso), barra_y + barra_h), (0, 255, 0), -1)
+            # Bordo bianco
+            cv2.rectangle(frame, (barra_x, barra_y), (barra_x + barra_w, barra_y + barra_h), (255, 255, 255), 2)
+
+            # Controlla se i 2 secondi sono finiti
+            if tempo_trascorso >= durata_calibrazione:
+                calibrazione_in_corso = False
+                zero_impostato = True
+                # Lo zero ora è la media perfetta degli angoli registrati in questi 2 secondi
+                offset_angolo_zero = somma_angoli_calibrazione / max(conteggio_angoli_calibrazione, 1)
+                print(f"Calibrazione completata! Zero impostato a: {offset_angolo_zero:.2f}")
+
         else:
-            angolo_mostrato = angolo_sterzata
+            angolo_sterzata = angolo_continuo - offset_angolo_zero
+
+            if abs(angolo_sterzata) < deadzone_angolo:
+                angolo_mostrato = 0.0
+            else:
+                angolo_mostrato = angolo_sterzata
 
 
-                # Clamp a ±180°
-        angolo_mostrato = max(-limite_angolo, min(angolo_mostrato, limite_angolo))
+                    # Clamp a ±180°
+            angolo_mostrato = max(-limite_angolo, min(angolo_mostrato, limite_angolo))
 
-        # Conversione [-1, +1]
-        sterzo_output = angolo_mostrato / limite_angolo
-        sterzo_output = max(-1.0, min(sterzo_output, 1.0))
+            # Conversione [-1, +1]
+            sterzo_output = angolo_mostrato / limite_angolo
+            sterzo_output = max(-1.0, min(sterzo_output, 1.0))
+            invia_comando(str(sterzo_output))
+            cv2.putText(
+                frame,
+                f"Sterzo: {angolo_mostrato:.1f} gradi",
+                (20, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2
+            )
 
-        cv2.putText(
-            frame,
-            f"Sterzo: {angolo_mostrato:.1f} gradi",
-            (20, 50),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.1,
-            (0, 255, 255),
-            3
-        )
+            cv2.putText(
+                frame,
+                f"Convertito: {sterzo_output:.1f}",
+                (20, 90),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 200, 0),
+                2
+            )
 
-        cv2.putText(
-            frame,
-            f"Raw: {angolo_grezzo:.1f}",
-            (20, 90),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 200, 0),
-            2
-        )
-
-        cv2.putText(
-            frame,
-            f"Continuo: {angolo_sterzata:.1f}",
-            (20, 125),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 0),
-            2
-        )
+            cv2.putText(
+                frame,
+                f"Continuo: {angolo_sterzata:.1f}",
+                (20, 125),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
 
     else:
         cv2.putText(
@@ -389,9 +461,9 @@ while running:
         running = False
 
     if tasto == ord("r"):
-        offset_angolo_zero = angolo_continuo
-        zero_impostato = True
-        print("Zero ricalibrato.")
+        zero_impostato = False
+        calibrazione_in_corso = False
+        print("Richiesta ricalibrazione... tieni le mani dritte.")
 
 
 # --- CHIUSURA ---
