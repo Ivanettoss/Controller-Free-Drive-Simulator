@@ -17,7 +17,7 @@ A computer vision pipeline tracks:
 - Hand position and movement → steering input  
 - Interaction with printed pedal templates → gas and brake  
 
-These inputs are processed and converted into commands, which are then sent via sockets to a driving simulator built using the :contentReference[oaicite:0]{index=0}.
+These inputs are processed and converted into commands, which are then sent via sockets to a driving simulator built using the Godot Game Engine
 
 ### 🕹️ Simulator
 
