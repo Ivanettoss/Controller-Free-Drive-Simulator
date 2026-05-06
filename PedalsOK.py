@@ -92,7 +92,7 @@ INTENSITY_WEIGHT = 0.08
 GAS_HARD_THRESHOLD = 0.10
 GAS_FULL_PRESSURE_AT = 0.45
 BRAKE_HARD_THRESHOLD = 0.10
-BRAKE_FULL_PRESSURE_AT = 0.55
+BRAKE_FULL_PRESSURE_AT = 0.40
 
 SMOOTHING = 0.22
 
@@ -104,7 +104,7 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 # ================= DISPLAY =================
 # False = mostra solo la schermata principale a colori con pedali, box e barre.
 # True  = mostra tutta la griglia debug.
-SHOW_DEBUG_DASHBOARD = True
+SHOW_DEBUG_DASHBOARD = False
 
 WINDOW_NAME = "Pedal Vision Output"
 
@@ -583,6 +583,14 @@ def build_reference(samples, state):
     # Per trovare la faccia del pedale uso una versione pulita geometricamente:
     # se nella ROI entra una fuga della piastrella, non deve allargare la face mask.
     face_source = remove_long_thin_noise(ref_black_all)
+
+    # ============================================================
+    # FIX FRENO: esclude la parte bassa della ROI
+    # ============================================================
+    # Il problema del freno è che il "gambo" può entrare nella maschera.
+    # Qui, solo per il FRENO, azzeriamo la parte bassa prima di calcolare
+    # la face_mask. Così auto_detect_face_mask() vede soprattutto la faccia larga.
+
     face_mask, face_rect = auto_detect_face_mask(face_source)
 
     ref_black = cv2.bitwise_and(ref_black_all, ref_black_all, mask=face_mask)
