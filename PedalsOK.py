@@ -1,44 +1,29 @@
 import cv2
 import numpy as np
-
-# ============================================================
-# PEDAL VISION - VERSIONE AUTO ROI PER NUOVA STAMPA B/N
-# ============================================================
-# Flusso:
-#   1. Avvia il programma.
-#   2. Metti il foglio ben visibile, senza piedi sopra.
-#   3. Premi C.
-#   4. Il programma trova automaticamente FRENO e GAS.
-#   5. Calibra automaticamente i riferimenti.
-#   6. Usa i pedali.
-#
-# Comandi:
-#   C = auto-rileva ROI + calibra
-#   R = reset
-#   S = salva screenshot dashboard
-#   Q = esci
-# ============================================================
-#====================CONFIG SOCKET============================
 import socket
 
-# Configurazione: IP locale e una porta libera a scelta
+#====================CONFIG SOCKET============================
+# Socket Ip congifuration to send sampled datas from hand and pedals
+
+UDP_DEBUG = False
 UDP_IP = "127.0.0.1"
 UDP_PORT = 4242
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def invia_comando(messaggio: str):
-    # Trasforma la stringa in byte e la invia
+    
     sock.sendto(messaggio.encode(), (UDP_IP, UDP_PORT))
-    print(f"Inviato: {messaggio}")
+    if UDP_DEBUG:
+        print(f"Inviato: {messaggio}")
+
+
 # ================= CONFIG CAMERA =================
 CAMERA_ID = 0
 FRAME_W, FRAME_H = 640, 480
 
 # ================= AUTO ROI =================
-# Con la nuova stampa: pedali neri su foglio bianco.
-# Il codice cerca prima il foglio chiaro, poi i due gruppi neri più grandi.
-# Più alto = il pavimento grigio non viene scambiato per foglio.
-# Nel tuo screenshot 185 era troppo basso: prendeva anche le piastrelle.
+# Looks for the paper sheet and then for the black pedals inside it.
+
 PAPER_WHITE_THRESHOLD = 210
 PAPER_MIN_AREA_RATIO = 0.08
 
@@ -62,7 +47,6 @@ AUTO_DILATE_KERNEL = 15
 # ================= CALIBRAZIONE =================
 CALIBRATION_FRAMES = 35
 
-# Nero stampato su foglio bianco.
 # Durante la calibrazione il threshold del nero viene calcolato con Otsu,
 # poi viene limitato dentro questo range per evitare soglie assurde.
 # Con stampa bianco/nero la soglia non deve salire troppo:
@@ -115,6 +99,39 @@ OUTPUT_SCALE = 1.0
 # ============================================================
 # UTILS BASE
 # ============================================================
+
+# ================= KERNEL / CACHE =================
+# Kernel riutilizzati: stessi valori di prima, ma creati una sola volta.
+
+KERNEL_OPEN_3 = np.ones((3, 3), np.uint8)
+
+KERNEL_PAPER_CLOSE = np.ones((31, 31), np.uint8)
+KERNEL_PAPER_OPEN = np.ones((9, 9), np.uint8)
+
+KERNEL_AUTO_CLOSE = cv2.getStructuringElement(
+    cv2.MORPH_ELLIPSE,
+    (AUTO_CLOSE_KERNEL, AUTO_CLOSE_KERNEL)
+)
+
+KERNEL_AUTO_DILATE = cv2.getStructuringElement(
+    cv2.MORPH_ELLIPSE,
+    (AUTO_DILATE_KERNEL, AUTO_DILATE_KERNEL)
+)
+
+KERNEL_FACE_CLOSE = np.ones((13, 13), np.uint8)
+KERNEL_FACE_DILATE = np.ones((9, 9), np.uint8)
+
+FACE_SPAN_SMOOTH_KERNEL = np.ones(9, dtype=np.float32) / 9
+
+KERNEL_EDGE_TOLERANCE = cv2.getStructuringElement(
+    cv2.MORPH_ELLIPSE,
+    (EDGE_TOLERANCE_RADIUS * 2 + 1, EDGE_TOLERANCE_RADIUS * 2 + 1)
+)
+
+KERNEL_CHANGED_OPEN = np.ones((5, 5), np.uint8)
+KERNEL_CHANGED_CLOSE = np.ones((9, 9), np.uint8)
+
+
 def clamp_roi(roi):
     x, y, w, h = map(int, roi)
     x = max(0, min(x, FRAME_W - 1))
@@ -240,8 +257,8 @@ def detect_paper_mask(gray_logic):
     paper = np.zeros_like(gray_logic, dtype=np.uint8)
     paper[gray_logic >= PAPER_WHITE_THRESHOLD] = 255
 
-    paper = cv2.morphologyEx(paper, cv2.MORPH_CLOSE, np.ones((31, 31), np.uint8))
-    paper = cv2.morphologyEx(paper, cv2.MORPH_OPEN, np.ones((9, 9), np.uint8))
+    paper = cv2.morphologyEx(paper, cv2.MORPH_CLOSE, KERNEL_PAPER_CLOSE)
+    paper = cv2.morphologyEx(paper, cv2.MORPH_OPEN, KERNEL_PAPER_OPEN)
 
     min_area = int(FRAME_W * FRAME_H * PAPER_MIN_AREA_RATIO)
     paper_mask, paper_contour = largest_contour_mask(paper, min_area=min_area)
@@ -269,14 +286,14 @@ def auto_detect_pedal_rois(gray_logic):
     black[(gray_logic <= AUTO_BLACK_FIXED_THRESHOLD) & (paper_mask > 0)] = 255
 
     # Pulisce rumore piccolo e soprattutto rimuove fughe diagonali delle piastrelle.
-    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, KERNEL_OPEN_3)
     black = remove_long_thin_noise(black)
 
     # Unisce tutti i dettagli interni del singolo pedale in una macro-forma.
-    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (AUTO_CLOSE_KERNEL, AUTO_CLOSE_KERNEL))
-    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (AUTO_DILATE_KERNEL, AUTO_DILATE_KERNEL))
-    merged = cv2.morphologyEx(black, cv2.MORPH_CLOSE, close_k)
-    merged = cv2.dilate(merged, dilate_k, iterations=1)
+    #close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (AUTO_CLOSE_KERNEL, AUTO_CLOSE_KERNEL))
+    #dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (AUTO_DILATE_KERNEL, AUTO_DILATE_KERNEL))
+    merged = cv2.morphologyEx(black, cv2.MORPH_CLOSE, KERNEL_AUTO_CLOSE)
+    merged = cv2.dilate(merged, KERNEL_AUTO_DILATE, iterations=1)
 
     contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -404,14 +421,14 @@ def threshold_black_calibration(gray):
 
     black = np.zeros_like(gray, dtype=np.uint8)
     black[gray <= black_thr] = 255
-    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, KERNEL_OPEN_3)
     return black_thr, black
 
 
 def threshold_black_live(gray, black_thr):
     black = np.zeros_like(gray, dtype=np.uint8)
     black[gray <= black_thr] = 255
-    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    black = cv2.morphologyEx(black, cv2.MORPH_OPEN, KERNEL_OPEN_3)
     return black
 
 
@@ -443,8 +460,8 @@ def auto_detect_face_mask(ref_black):
     """
     h, w = ref_black.shape
 
-    work = cv2.morphologyEx(ref_black, cv2.MORPH_CLOSE, np.ones((13, 13), np.uint8))
-    work = cv2.dilate(work, np.ones((9, 9), np.uint8), iterations=1)
+    work = cv2.morphologyEx(ref_black, cv2.MORPH_CLOSE, KERNEL_FACE_CLOSE)
+    work = cv2.dilate(work, KERNEL_FACE_DILATE, iterations=1)
 
     spans = np.zeros(h, dtype=np.float32)
     for y in range(h):
@@ -455,7 +472,7 @@ def auto_detect_face_mask(ref_black):
     if spans.max() < 10:
         return np.ones_like(ref_black) * 255, (0, 0, w, h)
 
-    spans = np.convolve(spans, np.ones(9, dtype=np.float32) / 9, mode="same")
+    spans = np.convolve(spans, FACE_SPAN_SMOOTH_KERNEL, mode="same")
     broad_rows = spans > spans.max() * FACE_ROW_SPAN_RATIO
     seg = largest_true_segment(broad_rows)
 
@@ -636,42 +653,117 @@ def build_reference(samples, state):
 # ============================================================
 def measure_black_missing(state, curr_black):
     ref_black = state["ref_black"]
-    total = cv2.countNonZero(ref_black)
+    face_mask = state["face_mask"]
 
-    if total < MIN_REF_BLACK_PIXELS:
-        return 0.0, np.zeros_like(state["face_mask"])
+    total_ref_black = cv2.countNonZero(ref_black)
 
-    k = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (EDGE_TOLERANCE_RADIUS * 2 + 1, EDGE_TOLERANCE_RADIUS * 2 + 1)
+    if total_ref_black < MIN_REF_BLACK_PIXELS:
+        return 0.0, np.zeros_like(face_mask)
+
+    # 1. SCARPA CHIARA:
+    # Percentuale di nero originale che è sparito
+    curr_dilated = cv2.dilate(
+        curr_black,
+        KERNEL_EDGE_TOLERANCE,
+        iterations=1
     )
 
-    curr_dilated = cv2.dilate(curr_black, k, iterations=1)
     visible = cv2.bitwise_and(ref_black, curr_dilated)
-    missing = cv2.bitwise_and(ref_black, cv2.bitwise_not(visible))
+    missing_black = cv2.bitwise_and(ref_black, cv2.bitwise_not(visible))
 
-    raw = cv2.countNonZero(missing) / total
-    return float(np.clip(raw, 0.0, 1.0)), missing
+    missing_ratio = cv2.countNonZero(missing_black) / total_ref_black
 
+    # 2. SCARPA SCURA:
+    # Percentuale di spazio bianco coperto da nero intruso
+    ref_dilated = cv2.dilate(
+        ref_black,
+        KERNEL_EDGE_TOLERANCE,
+        iterations=1
+    )
+
+    intruder_black = cv2.bitwise_and(
+        curr_black,
+        cv2.bitwise_not(ref_dilated)
+    )
+
+    intruder_black = cv2.bitwise_and(
+        intruder_black,
+        intruder_black,
+        mask=face_mask
+    )
+
+    total_face_area = cv2.countNonZero(face_mask)
+    total_white_area = max(1, total_face_area - total_ref_black)
+
+    SENSITIVITA_SCARPA_SCURA = 1.0
+
+    intruder_ratio = (
+        cv2.countNonZero(intruder_black) / total_white_area
+    ) * SENSITIVITA_SCARPA_SCURA
+
+    # Prende l'effetto dominante:
+    # scarpa chiara -> missing_ratio
+    # scarpa scura  -> intruder_ratio
+    raw = max(missing_ratio, intruder_ratio)
+
+    # Visualizzazione: rosso = nero sparito oppure nero intruso
+    total_vis = cv2.bitwise_or(missing_black, intruder_black)
+
+    return float(np.clip(raw, 0.0, 1.0)), total_vis
 
 def measure_edge_missing(state, curr_edges):
     ref_edges = state["ref_edges"]
-    total = cv2.countNonZero(ref_edges)
+    face_mask = state["face_mask"]
 
-    if total < MIN_REF_EDGE_PIXELS:
-        return 0.0, np.zeros_like(state["face_mask"])
+    total_ref_edges = cv2.countNonZero(ref_edges)
 
-    k = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (EDGE_TOLERANCE_RADIUS * 2 + 1, EDGE_TOLERANCE_RADIUS * 2 + 1)
+    if total_ref_edges < MIN_REF_EDGE_PIXELS:
+        return 0.0, np.zeros_like(face_mask)
+
+    # 1. Bordi originali persi
+    curr_dilated = cv2.dilate(
+        curr_edges,
+        KERNEL_EDGE_TOLERANCE,
+        iterations=1
     )
 
-    curr_dilated = cv2.dilate(curr_edges, k, iterations=1)
     visible = cv2.bitwise_and(ref_edges, curr_dilated)
-    missing = cv2.bitwise_and(ref_edges, cv2.bitwise_not(visible))
+    missing_edges = cv2.bitwise_and(ref_edges, cv2.bitwise_not(visible))
 
-    raw = cv2.countNonZero(missing) / total
-    return float(np.clip(raw, 0.0, 1.0)), missing
+    missing_ratio = cv2.countNonZero(missing_edges) / total_ref_edges
+
+    # 2. Bordi creati dalla scarpa scura
+    ref_dilated = cv2.dilate(
+        ref_edges,
+        KERNEL_EDGE_TOLERANCE,
+        iterations=1
+    )
+
+    intruder_edges = cv2.bitwise_and(
+        curr_edges,
+        cv2.bitwise_not(ref_dilated)
+    )
+
+    intruder_edges = cv2.bitwise_and(
+        intruder_edges,
+        intruder_edges,
+        mask=face_mask
+    )
+
+    # Sensibilità dell'intrusione dei bordi
+    SENSITIVITA_BORDI_SCURI = 1.0
+
+    intruder_ratio = (
+        cv2.countNonZero(intruder_edges) / total_ref_edges
+    ) * SENSITIVITA_BORDI_SCURI
+
+    # Prendo il caso dominante
+    raw = max(missing_ratio, intruder_ratio)
+
+    # Visualizzazione: bordi persi + bordi intrusi
+    total_vis = cv2.bitwise_or(missing_edges, intruder_edges)
+
+    return float(np.clip(raw * 1.2, 0.0, 1.0)), total_vis
 
 
 def measure_intensity_changed(state, curr_gray):
@@ -696,8 +788,8 @@ def measure_intensity_changed(state, curr_gray):
     changed[(diff > INTENSITY_DIFF_THRESHOLD) & mask] = 255
 
     changed = cv2.medianBlur(changed, 5)
-    changed = cv2.morphologyEx(changed, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-    changed = cv2.morphologyEx(changed, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    changed = cv2.morphologyEx(changed, cv2.MORPH_OPEN, KERNEL_CHANGED_OPEN)
+    changed = cv2.morphologyEx(changed, cv2.MORPH_CLOSE, KERNEL_CHANGED_CLOSE)
 
     raw = cv2.countNonZero(changed) / np.count_nonzero(mask)
     diff_vis = cv2.bitwise_and(diff_u8, diff_u8, mask=state["face_mask"])
@@ -966,6 +1058,8 @@ print("Comandi: C auto-calibra | R reset | S screenshot | Q esci")
 print("All'avvio premi C con il foglio visibile e i piedi lontani.")
 print("SHOW_DEBUG_DASHBOARD =", SHOW_DEBUG_DASHBOARD)
 
+RUNTIME_DEBUG_PRINT = False
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -987,15 +1081,19 @@ while True:
         update_state(gas_state, gas_live)
 
         gas_val = gas_state["output"]
-        print( f"GAS black={gas_state['black_raw']:.3f} "
-        f"edge={gas_state['edge_raw']:.3f} "
-        f"int={gas_state['int_raw']:.3f} "
-        f"raw={gas_state['combined_raw']:.3f} "
-        f"pressure={gas_state['pressure']:.3f} "
-        f"out={gas_state['output']:.3f}"
-    )
+        brake_val = brake_state["output"]
 
-        invia_comando(f"GAS:{gas_val:.3f}")
+        invia_comando(f"A:{gas_val:.3f};B:{brake_val:.3f};S:{0};R:{0}")
+
+
+        if RUNTIME_DEBUG_PRINT:
+            print( f"GAS black={gas_state['black_raw']:.3f} "
+            f"edge={gas_state['edge_raw']:.3f} "
+            f"int={gas_state['int_raw']:.3f} "
+            f"raw={gas_state['combined_raw']:.3f} "
+            f"pressure={gas_state['pressure']:.3f} "
+            f"out={gas_state['output']:.3f}" 
+            )
 
 
 
